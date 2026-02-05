@@ -1,0 +1,225 @@
+# Document Extraction Engine Configuration
+# User-facing configuration for extraction behavior
+
+# System Settings
+system:
+  name: "DocAI Extraction Engine"
+  version: "1.0.0"
+  environment: "production"  # development | staging | production
+
+# Document Sources
+sources:
+  # Local directory
+  - type: "local_directory"
+    path: "./documents/inbox"
+    watch: false  # Set to true to monitor for new files
+    recursive: true
+
+  # Google Cloud Storage
+  # - type: "gcs_bucket"
+  #   bucket: "gs://company-documents"
+  #   prefix: "financial/"
+
+  # AWS S3
+  # - type: "s3_bucket"
+  #   bucket: "s3://invoices"
+  #   region: "us-east-1"
+
+# Document Processing
+processing:
+  # Preprocessing
+  preprocessing:
+    max_nesting_depth: 10  # Maximum depth for nested documents (ZIPs, etc.)
+    enable_ocr: true
+    enable_image_enhancement: true
+    auto_rotate: true
+    denoise: true
+
+  # MIME type handling
+  mime_handling:
+    strict_validation: false
+    fallback_to_magic: true
+    supported_types: "all"  # or list specific types
+
+  # Parallel processing
+  parallelism:
+    max_workers: 5
+    batch_size: 10
+    processing_mode: "adaptive"  # serial | parallel | adaptive
+
+# LLM Configuration
+llm:
+  primary:
+    provider: "vertex_ai"
+    model: "gemini-1.5-pro"
+    temperature: 0.1
+    max_tokens: 4096
+
+  # Fallback model (optional)
+  # fallback:
+  #   provider: "anthropic"
+  #   model: "claude-3-5-sonnet-20241022"
+  #   temperature: 0.1
+
+  rate_limits:
+    requests_per_minute: 60
+    tokens_per_minute: 100000
+
+# Custom Extraction Prompts
+# These are applied in addition to standard schema extraction
+custom_extraction:
+  # Global prompts applied to all documents
+  global:
+    - "Extract all dates and convert to ISO 8601 format"
+    - "Identify any compliance or regulatory mentions (GDPR, SOX, etc.)"
+
+  # Document type specific
+  invoice:
+    - "Extract payment terms and early payment discounts"
+    - "Identify tax rates and jurisdiction"
+
+  agreement:
+    - "Extract all penalty clauses with amounts"
+    - "Identify termination conditions"
+    - "Extract renewal terms and auto-renewal clauses"
+
+  kyc:
+    - "Verify document expiration status"
+    - "Extract all identity verification numbers"
+
+  # Cross-document queries
+  cross_document:
+    - query: "Calculate total invoice amount by vendor"
+      scope: "invoice"
+    - query: "Identify contracts expiring in next 90 days"
+      scope: "agreement"
+    - query: "Match invoices to their corresponding contracts"
+      scope: "multi"
+
+# Relationship Detection
+relationships:
+  enabled: true
+  detectors:
+    - filename_pattern
+    - explicit_reference
+    - entity_matching
+    - temporal_correlation
+    # - semantic_analysis  # Expensive, enable only if needed
+
+  confidence_threshold: 0.6
+  enable_clustering: true
+
+# Error Handling
+error_handling:
+  retry_policy:
+    max_attempts: 3
+    backoff_seconds: 1
+    max_backoff_seconds: 30
+
+  fallback_chain:
+    - rule_based_extraction
+    - ocr_only_extraction
+    - metadata_extraction
+
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    timeout_seconds: 60
+
+  partial_results:
+    allow: true
+    min_confidence: 0.3
+
+# Caching
+caching:
+  enabled: true
+  levels:
+    - memory
+    - disk
+
+  memory_cache:
+    max_size: 100  # Maximum number of cached results
+
+  disk_cache:
+    path: "./cache"
+    max_size_gb: 10
+    ttl_hours: 168  # 1 week
+
+  # Distributed cache (optional)
+  # distributed_cache:
+  #   enabled: true
+  #   redis_url: "redis://localhost:6379"
+
+# Output Configuration
+output:
+  format: "json"  # json | yaml | csv
+
+  structure:
+    per_document: true
+    aggregated: true
+    relationships: true
+
+  destination:
+    type: "local_directory"
+    path: "./output"
+
+  # What to include in output
+  fields:
+    include_confidence: true
+    include_metadata: true
+    include_source_references: true
+
+# Quality & Evaluation
+evaluation:
+  enabled: true
+
+  continuous_evaluation:
+    enabled: true
+    alert_threshold: 0.5  # Alert if quality score below this
+
+  metrics:
+    - completeness
+    - consistency
+    - confidence
+    - schema_compliance
+
+  # Benchmark testing (optional)
+  benchmark:
+    enabled: false
+    datasets_path: "./benchmarks"
+
+# Monitoring & Logging
+monitoring:
+  logging:
+    level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+    format: "json"
+    destination: "stdout"
+
+  metrics:
+    enabled: true
+    export_interval_seconds: 60
+
+  # Alerting (optional)
+  # alerts:
+  #   enabled: true
+  #   channels:
+  #     - type: "email"
+  #       recipients: ["admin@company.com"]
+  #     - type: "slack"
+  #       webhook_url: "https://hooks.slack.com/..."
+
+# Deployment
+deployment:
+  mode: "local"  # local | vertex_ai | cloud_run
+
+  # Vertex AI specific
+  vertex_ai:
+    project_id: ${PROJECT_ID}
+    region: "us-central1"
+    endpoint_name: "docai-extraction-endpoint"
+
+  # Scaling
+  scaling:
+    auto_scale: true
+    min_instances: 1
+    max_instances: 10

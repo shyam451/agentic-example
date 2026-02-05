@@ -1,0 +1,5 @@
+# Core dependencies - symlink to deployment/requirements.txt
+# Use: pip install -r deployment/requirements.txt
+
+# Or run:
+# ln -s deployment/requirements.txt requirements.txt

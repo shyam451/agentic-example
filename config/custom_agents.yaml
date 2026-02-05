@@ -1,0 +1,181 @@
+# yaml-language-server: $schema=../schemas/config/custom_agent_config.schema.json
+#
+# Custom Agent Configuration
+#
+# This file defines:
+# 1. Extensions to built-in agents (InvoiceAgent, AgreementAgent, KYCAgent)
+# 2. Completely new custom agents for specific document types
+# 3. Processing pipelines
+#
+
+apiVersion: docai.custom/v1
+kind: CustomAgentConfig
+
+# ============================================================
+# Agent Extensions
+# ============================================================
+# Extend built-in agents with additional extraction requirements.
+# The base agent functionality is preserved, with custom prompts appended.
+
+agent_extensions:
+  # Extend InvoiceAgent to extract additional purchase order details
+  - extends: InvoiceAgent
+    custom_prompts:
+      - "Extract purchase order (PO) references and cross-reference numbers"
+      - "Identify early payment discount terms (e.g., '2% 10 net 30')"
+      - "Extract shipping and handling charges separately"
+      - "Identify any credit notes or adjustments applied"
+    additional_fields:
+      - po_reference
+      - early_payment_discount
+      - shipping_charges
+      - credit_adjustments
+
+  # Extend AgreementAgent for SLA-specific extractions
+  - extends: AgreementAgent
+    custom_prompts:
+      - "Extract SLA commitments including uptime guarantees and response times"
+      - "Identify data residency and compliance requirements (GDPR, SOC2, etc.)"
+      - "Extract service credit calculations for SLA breaches"
+      - "Identify change management and escalation procedures"
+    additional_fields:
+      - sla_commitments
+      - compliance_requirements
+      - service_credits
+      - escalation_procedures
+
+# ============================================================
+# Custom Agents
+# ============================================================
+# Define entirely new agents for document types not covered by built-in agents.
+
+custom_agents:
+  # Receipt extraction agent
+  - name: ReceiptAgent
+    document_type: receipt
+    description: "Extract data from retail receipts and point-of-sale documents"
+    model: gemini-2.5-flash
+    schema_path: schemas/custom/receipt.json
+    instruction: |
+      You are an expert receipt extraction agent. Your task is to extract
+      structured data from retail receipts accurately.
+
+      Extract the following information:
+      1. Store Information:
+         - Store name and brand
+         - Store address and phone number
+         - Store ID or location code
+
+      2. Transaction Details:
+         - Receipt/transaction number
+         - Date and time of purchase
+         - Cashier/associate name or ID
+         - Register/terminal number
+
+      3. Line Items:
+         - Product name/description
+         - SKU or item code
+         - Quantity
+         - Unit price
+         - Line total
+         - Any discounts applied per item
+
+      4. Payment Summary:
+         - Subtotal (before tax)
+         - Tax amount (itemized by type if available)
+         - Total amount
+         - Payment method (cash, card, etc.)
+         - Card last 4 digits (if applicable)
+         - Change given (if cash)
+
+      5. Additional Information:
+         - Coupons/promotions applied
+         - Loyalty/rewards points earned or redeemed
+         - Return policy information
+         - Survey/feedback codes
+
+      Provide confidence scores for all extracted fields.
+      Return results in valid JSON format.
+    tools:
+      - parse_pdf
+      - perform_ocr
+      - extract_tables
+    custom_prompts:
+      - "Identify and extract any barcode or QR code values"
+      - "Detect warranty information for electronics"
+    validation_rules:
+      - rule: line_items_sum_equals_subtotal
+        tolerance: 0.02
+      - rule: subtotal_plus_tax_equals_total
+        tolerance: 0.01
+
+  # Medical form extraction agent
+  - name: MedicalFormAgent
+    document_type: medical_form
+    description: "Extract data from medical forms and healthcare documents"
+    model: gemini-2.5-flash
+    instruction: |
+      You are an expert medical document extraction agent. Your task is to
+      extract structured data from healthcare forms accurately while maintaining
+      patient privacy considerations.
+
+      Extract the following information:
+      1. Patient Information:
+         - Patient name
+         - Date of birth
+         - Patient ID/MRN
+         - Contact information
+         - Insurance information
+
+      2. Provider Information:
+         - Facility name
+         - Provider name and credentials
+         - NPI number
+         - Contact information
+
+      3. Clinical Information:
+         - Date of service
+         - Chief complaint
+         - Diagnosis codes (ICD-10)
+         - Procedure codes (CPT)
+         - Medications prescribed
+         - Lab orders
+         - Follow-up instructions
+
+      4. Signatures and Consent:
+         - Patient signature status
+         - Provider signature status
+         - Consent form type
+         - Date signed
+
+      Handle PHI (Protected Health Information) appropriately.
+      Provide confidence scores for all extracted fields.
+      Return results in valid JSON format.
+    tools:
+      - parse_pdf
+      - perform_ocr
+    custom_prompts:
+      - "Extract all diagnosis codes with their descriptions"
+      - "Identify any allergies or contraindications noted"
+
+# ============================================================
+# Pipelines
+# ============================================================
+# Define processing pipelines for complex workflows.
+
+pipelines:
+  # Standard receipt processing pipeline
+  - name: receipt_pipeline
+    type: sequential
+    agents:
+      - ReceiptAgent
+    description: "Process retail receipts with OCR and extraction"
+
+  # Multi-document batch pipeline
+  - name: batch_extraction_pipeline
+    type: parallel
+    agents:
+      - InvoiceAgent
+      - AgreementAgent
+      - KYCAgent
+    description: "Process mixed document batches in parallel"

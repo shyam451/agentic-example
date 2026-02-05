@@ -1,0 +1,74 @@
+# Core dependencies for document extraction engine
+
+# Google ADK (Agent Development Kit)
+google-adk>=1.23.0
+
+# Google Cloud dependencies
+google-cloud-aiplatform>=1.40.0
+google-cloud-storage>=2.10.0
+google-cloud-documentai>=2.20.0
+
+# MCP (Model Context Protocol)
+mcp>=1.0.0
+
+# Document processing
+PyMuPDF>=1.23.0  # PDF parsing (fitz)
+pdfplumber>=0.10.0  # Alternative PDF parser
+python-docx>=1.0.0  # DOCX processing
+openpyxl>=3.1.0  # Excel processing
+python-magic>=0.4.27  # MIME type detection
+pillow>=10.0.0  # Image processing
+
+# OCR
+pytesseract>=0.3.10  # Tesseract OCR wrapper
+# Note: Requires tesseract-ocr system package
+
+# Table extraction
+camelot-py[cv]>=0.11.0  # PDF table extraction
+tabula-py>=2.8.0  # Alternative table extraction
+
+# NLP and text processing
+spacy>=3.7.0  # Named Entity Recognition
+# python -m spacy download en_core_web_sm  # Run after install
+
+# Data handling
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Web and HTML processing
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+requests>=2.31.0
+
+# Archive handling
+rarfile>=4.1  # RAR archives
+py7zr>=0.20.0  # 7z archives
+
+# Email processing
+extract-msg>=0.45.0  # Outlook MSG files
+
+# Configuration and utilities
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+jsonschema>=4.20.0  # YAML config validation
+
+# Async support
+aiofiles>=23.2.0
+asyncio>=3.4.3
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Development
+black>=23.7.0  # Code formatting
+flake8>=6.1.0  # Linting
+mypy>=1.5.0  # Type checking
+
+# Optional: Redis for distributed caching
+# redis>=5.0.0
+
+# Optional: Database
+# sqlalchemy>=2.0.0
+# psycopg2-binary>=2.9.0

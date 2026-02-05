@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Invoice Schema",
+  "description": "Schema for structured invoice data extraction",
+  "type": "object",
+  "properties": {
+    "document_type": {
+      "type": "string",
+      "const": "invoice"
+    },
+    "document_path": {
+      "type": "string",
+      "description": "Path to source document"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "invoice_number": {
+          "type": "string",
+          "description": "Unique invoice identifier"
+        },
+        "invoice_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Date invoice was issued (ISO 8601)"
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Payment due date (ISO 8601)"
+        },
+        "po_number": {
+          "type": "string",
+          "description": "Purchase order reference number"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Overall extraction confidence"
+        }
+      },
+      "required": ["invoice_number", "invoice_date"]
+    },
+    "vendor": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Vendor/supplier company name"
+        },
+        "address": {
+          "type": "string",
+          "description": "Vendor address"
+        },
+        "tax_id": {
+          "type": "string",
+          "description": "Vendor tax ID/EIN"
+        },
+        "contact": {
+          "type": "string",
+          "description": "Contact email or phone"
+        }
+      },
+      "required": ["name"]
+    },
+    "customer": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Customer/buyer company name"
+        },
+        "address": {
+          "type": "string",
+          "description": "Customer address"
+        },
+        "tax_id": {
+          "type": "string",
+          "description": "Customer tax ID"
+        }
+      },
+      "required": ["name"]
+    },
+    "line_items": {
+      "type": "array",
+      "description": "Individual items/services on invoice",
+      "items": {
+        "type": "object",
+        "properties": {
+          "item_number": {
+            "type": "string",
+            "description": "Item/SKU number"
+          },
+          "description": {
+            "type": "string",
+            "description": "Item description"
+          },
+          "quantity": {
+            "type": "number",
+            "description": "Quantity ordered"
+          },
+          "unit_price": {
+            "type": "number",
+            "description": "Price per unit"
+          },
+          "amount": {
+            "type": "number",
+            "description": "Line item total (quantity * unit_price)"
+          },
+          "tax_rate": {
+            "type": "number",
+            "description": "Tax rate for this item"
+          }
+        },
+        "required": ["description", "amount"]
+      }
+    },
+    "financial": {
+      "type": "object",
+      "properties": {
+        "subtotal": {
+          "type": "number",
+          "description": "Subtotal before tax"
+        },
+        "tax": {
+          "type": "number",
+          "description": "Total tax amount"
+        },
+        "shipping": {
+          "type": "number",
+          "description": "Shipping/delivery charges"
+        },
+        "discount": {
+          "type": "number",
+          "description": "Discount amount"
+        },
+        "total_amount": {
+          "type": "number",
+          "description": "Final total amount due"
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency code (e.g., USD, EUR)",
+          "default": "USD"
+        }
+      },
+      "required": ["total_amount", "currency"]
+    },
+    "payment_terms": {
+      "type": "object",
+      "properties": {
+        "terms": {
+          "type": "string",
+          "description": "Payment terms (e.g., Net 30)"
+        },
+        "method": {
+          "type": "string",
+          "description": "Accepted payment methods"
+        },
+        "bank_details": {
+          "type": "object",
+          "properties": {
+            "bank_name": {"type": "string"},
+            "account_number": {"type": "string"},
+            "routing_number": {"type": "string"},
+            "swift_code": {"type": "string"}
+          }
+        },
+        "early_payment_discount": {
+          "type": "object",
+          "properties": {
+            "percentage": {"type": "number"},
+            "days": {"type": "number"}
+          }
+        }
+      }
+    },
+    "custom_extractions": {
+      "type": "object",
+      "description": "Additional custom fields from user prompts"
+    },
+    "extraction_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When extraction was performed"
+    }
+  },
+  "required": ["document_type", "metadata", "vendor", "financial"]
+}

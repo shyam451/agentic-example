@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://docai.dev/schemas/custom-agent-config.json",
+  "title": "Custom Agent Configuration",
+  "description": "Schema for defining custom agents and extending built-in agents",
+  "type": "object",
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": {
+      "const": "docai.custom/v1",
+      "description": "API version for this configuration"
+    },
+    "kind": {
+      "const": "CustomAgentConfig",
+      "description": "Configuration type identifier"
+    },
+    "agent_extensions": {
+      "type": "array",
+      "description": "Extensions to built-in agents (InvoiceAgent, AgreementAgent, KYCAgent)",
+      "items": {
+        "$ref": "#/definitions/AgentExtension"
+      }
+    },
+    "custom_agents": {
+      "type": "array",
+      "description": "Entirely new custom agents",
+      "items": {
+        "$ref": "#/definitions/CustomAgentDefinition"
+      }
+    },
+    "pipelines": {
+      "type": "array",
+      "description": "Processing pipelines combining multiple agents",
+      "items": {
+        "$ref": "#/definitions/PipelineDefinition"
+      }
+    }
+  },
+  "definitions": {
+    "AgentExtension": {
+      "type": "object",
+      "description": "Extend a built-in agent with custom prompts",
+      "required": ["extends", "custom_prompts"],
+      "properties": {
+        "extends": {
+          "type": "string",
+          "enum": ["InvoiceAgent", "AgreementAgent", "KYCAgent"],
+          "description": "Name of the built-in agent to extend"
+        },
+        "custom_prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Additional extraction instructions to append"
+        },
+        "additional_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional fields to extract beyond the default schema"
+        },
+        "validation_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValidationRule"
+          },
+          "description": "Custom validation rules for extracted data"
+        }
+      }
+    },
+    "CustomAgentDefinition": {
+      "type": "object",
+      "description": "Define an entirely new custom agent",
+      "required": ["name", "document_type", "instruction"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z][a-zA-Z]+Agent$",
+          "description": "Agent name (must end with 'Agent')"
+        },
+        "document_type": {
+          "type": "string",
+          "description": "Document type this agent handles (used for routing)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the agent's purpose"
+        },
+        "model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "description": "Gemini model to use"
+        },
+        "schema_path": {
+          "type": "string",
+          "description": "Path to JSON schema for extraction output"
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 50,
+          "description": "Detailed extraction instructions for the agent"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tool functions available to this agent"
+        },
+        "custom_prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional extraction requirements"
+        },
+        "validation_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ValidationRule"
+          },
+          "description": "Validation rules for extracted data"
+        }
+      }
+    },
+    "PipelineDefinition": {
+      "type": "object",
+      "description": "Define a processing pipeline",
+      "required": ["name", "type", "agents"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Pipeline identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["sequential", "parallel"],
+          "description": "Pipeline execution type"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "List of agent names in execution order"
+        },
+        "description": {
+          "type": "string",
+          "description": "Pipeline description"
+        }
+      }
+    },
+    "ValidationRule": {
+      "type": "object",
+      "required": ["rule"],
+      "properties": {
+        "rule": {
+          "type": "string",
+          "description": "Rule identifier (e.g., 'line_items_sum_equals_subtotal')"
+        },
+        "tolerance": {
+          "type": "number",
+          "description": "Tolerance for numeric comparisons"
+        },
+        "error_level": {
+          "type": "string",
+          "enum": ["error", "warning"],
+          "default": "error",
+          "description": "Severity level if rule fails"
+        }
+      }
+    }
+  }
+}

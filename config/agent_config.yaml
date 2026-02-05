@@ -1,0 +1,220 @@
+# Vertex AI Agent Engine Configuration
+# This configures the multi-agent extraction engine for deployment to Agent Engine
+
+apiVersion: adk.vertexai.google.com/v1
+kind: Agent
+metadata:
+  name: docai-extraction-orchestrator
+  namespace: financial-docs
+
+spec:
+  # Agent Engine runtime settings
+  runtime:
+    type: agent-engine
+    version: "1.0"
+    region: us-central1
+
+  # Main orchestrator agent
+  orchestrator:
+    type: LLMAgent
+    model:
+      name: gemini-1.5-pro
+      project: ${PROJECT_ID}
+      location: us-central1
+      temperature: 0.1
+      max_tokens: 4096
+
+    system_prompt: |
+      You are a document extraction orchestrator for financial documents.
+      Your role is to:
+      1. Classify incoming documents by type (invoice, agreement, KYC, etc.)
+      2. Delegate extraction tasks to specialized sub-agents
+      3. Coordinate cross-document analysis when multiple documents are provided
+      4. Aggregate and validate results from all sub-agents
+      5. Apply custom user-provided prompts for specialized extraction
+
+      Always maintain confidence scores for extracted data and flag uncertain extractions for review.
+
+    tools:
+      - name: document_classifier
+        type: function
+      - name: invoice_agent
+        type: agent
+      - name: agreement_agent
+        type: agent
+      - name: kyc_agent
+        type: agent
+      - name: relationship_mapper
+        type: agent
+      - name: custom_agent
+        type: agent
+
+    config:
+      classification_confidence_threshold: 0.7
+      enable_auto_detection: true
+
+  # Sub-agents
+  sub_agents:
+    # Invoice extraction agent
+    - name: invoice_agent
+      type: LLMAgent
+      model:
+        name: gemini-1.5-pro
+        temperature: 0.1
+      system_prompt: |
+        You are an invoice extraction specialist. Extract structured data from invoices including:
+        - Invoice metadata (number, date, due date)
+        - Vendor and customer information
+        - Line items with descriptions, quantities, and amounts
+        - Financial totals (subtotal, tax, total)
+        - Payment terms
+
+        Return data matching the invoice schema. Flag any inconsistencies in calculations.
+      tools:
+        - name: pdf_parser
+          type: mcp
+        - name: table_extractor
+          type: mcp
+        - name: ocr_engine
+          type: mcp
+      schema_path: gs://${BUCKET}/schemas/invoice.json
+
+    # Agreement extraction agent
+    - name: agreement_agent
+      type: LLMAgent
+      model:
+        name: gemini-1.5-pro
+        temperature: 0.1
+      system_prompt: |
+        You are an agreement/contract extraction specialist. Extract structured data including:
+        - Agreement type and metadata
+        - Parties involved with roles
+        - Key terms (scope, payment, termination, liability)
+        - Obligations and deliverables
+        - Penalty clauses
+        - Renewal terms
+        - Signatures
+
+        Return data matching the agreement schema. Pay special attention to dates, amounts, and legal terms.
+      tools:
+        - name: pdf_parser
+          type: mcp
+        - name: ocr_engine
+          type: mcp
+      schema_path: gs://${BUCKET}/schemas/agreement.json
+
+    # KYC document extraction agent
+    - name: kyc_agent
+      type: LLMAgent
+      model:
+        name: gemini-1.5-pro
+        temperature: 0.1
+      system_prompt: |
+        You are a KYC document extraction specialist. Extract identity information from documents such as:
+        - Passports, driver licenses, national IDs
+        - Utility bills and bank statements for address verification
+
+        Extract:
+        - Personal information (name, date of birth, nationality)
+        - Document details (ID number, issue/expiry dates)
+        - Address information
+        - Security features (photo, MRZ, signatures)
+
+        Return data matching the KYC schema. Verify document authenticity where possible.
+      tools:
+        - name: ocr_engine
+          type: mcp
+        - name: pdf_parser
+          type: mcp
+      schema_path: gs://${BUCKET}/schemas/kyc.json
+      config:
+        verify_documents: true
+
+    # Relationship mapper agent
+    - name: relationship_mapper
+      type: LLMAgent
+      model:
+        name: gemini-1.5-flash  # Lighter model for relationship detection
+        temperature: 0.2
+      system_prompt: |
+        You analyze relationships between multiple documents. Detect connections such as:
+        - Invoices matching purchase orders
+        - Agreements referenced in invoices
+        - Documents belonging to the same entity or transaction
+        - Temporal relationships (documents from same time period)
+
+        Build a document graph showing relationships with confidence scores.
+      tools:
+        - name: entity_matcher
+          type: function
+        - name: reference_detector
+          type: function
+      config:
+        confidence_threshold: 0.6
+        enabled_detectors:
+          - filename_pattern
+          - explicit_reference
+          - entity_matching
+          - temporal_correlation
+
+    # Custom prompt agent for user-defined extraction
+    - name: custom_agent
+      type: LLMAgent
+      model:
+        name: gemini-1.5-pro
+        temperature: 0.1
+      system_prompt: |
+        You perform custom document extraction based on user-provided prompts.
+        Extract information according to the specific requirements given by the user,
+        in addition to or instead of standard schema-based extraction.
+      tools:
+        - name: pdf_parser
+          type: mcp
+        - name: ocr_engine
+          type: mcp
+        - name: table_extractor
+          type: mcp
+
+  # MCP Tool Servers
+  tool_servers:
+    - name: document-processing-tools
+      type: mcp
+      transport: stdio
+      command: python
+      args: ["-m", "tools.mcp_server"]
+      env:
+        GOOGLE_CLOUD_PROJECT: ${PROJECT_ID}
+        GOOGLE_APPLICATION_CREDENTIALS: ${CREDENTIALS_PATH}
+
+  # State management (Agent Engine handles this automatically)
+  state:
+    backend: vertex-ai-managed
+    persistence: true
+    ttl_hours: 168  # 7 days
+
+  # Scaling configuration
+  scaling:
+    min_replicas: 1
+    max_replicas: 20
+    target_concurrent_requests: 5
+    scale_down_delay: 300  # seconds
+    cpu_utilization_target: 0.7
+    memory_utilization_target: 0.8
+
+  # Resource limits
+  resources:
+    cpu: "4"
+    memory: "8Gi"
+    timeout_seconds: 600
+
+  # Monitoring
+  monitoring:
+    enabled: true
+    metrics:
+      - documents_processed
+      - processing_duration
+      - extraction_confidence
+      - error_rate
+    logging:
+      level: INFO
+      include_request_response: true
