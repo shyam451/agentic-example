@@ -49,7 +49,7 @@ DOCUMENT_TYPES = {
 
 # File extension to document type mapping
 EXTENSION_TYPE_MAP = {
-    # Container types
+    # Container types (need preprocessing, not direct extraction)
     '.zip': 'archive',
     '.rar': 'archive',
     '.tar': 'archive',
@@ -68,6 +68,18 @@ EXTENSION_TYPE_MAP = {
     '.tiff': None,
     '.bmp': None,
 }
+
+# MIME types that Gemini doesn't support - skip LLM classification
+UNSUPPORTED_MIME_TYPES = {
+    'message/rfc822',      # Email (.eml)
+    'application/vnd.ms-outlook',  # Outlook (.msg)
+    'application/x-rar-compressed',
+    'application/x-7z-compressed',
+    'application/gzip',
+}
+
+# Extensions that should skip LLM classification entirely
+SKIP_LLM_EXTENSIONS = {'.eml', '.msg', '.zip', '.rar', '.tar', '.7z', '.gz'}
 
 
 def classify_document(
@@ -121,6 +133,16 @@ def _extract_document_content(document_path: str, max_chars: int = 3000) -> Opti
     path = Path(document_path)
     extension = path.suffix.lower()
 
+    # Skip binary/container formats that can't have text extracted
+    if extension in SKIP_LLM_EXTENSIONS:
+        logger.debug(f"Skipping content extraction for container type: {extension}")
+        return None
+
+    # Images don't have extractable text (would need OCR)
+    if extension in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif', '.webp']:
+        logger.debug(f"Skipping content extraction for image: {extension}")
+        return None
+
     try:
         if extension == '.pdf' and PYMUPDF_AVAILABLE:
             # Extract text from first few pages of PDF
@@ -131,7 +153,7 @@ def _extract_document_content(document_path: str, max_chars: int = 3000) -> Opti
                 text_parts.append(page.get_text())
             doc.close()
             text = "\n".join(text_parts)
-            return text[:max_chars] if text else None
+            return text[:max_chars] if text.strip() else None
 
         elif extension in ['.txt', '.md', '.csv']:
             with open(document_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -145,7 +167,7 @@ def _extract_document_content(document_path: str, max_chars: int = 3000) -> Opti
                 text_parts.append(page.get_text())
             doc.close()
             text = "\n".join(text_parts)
-            return text[:max_chars] if text else None
+            return text[:max_chars] if text.strip() else None
 
     except Exception as e:
         logger.warning(f"Failed to extract content from {document_path}: {e}")
@@ -175,10 +197,23 @@ def _classify_with_llm(
         logger.debug("google.generativeai not available, skipping LLM classification")
         return None
 
+    # Skip LLM for unsupported file types
+    path = Path(document_path)
+    extension = path.suffix.lower()
+    if extension in SKIP_LLM_EXTENSIONS:
+        logger.debug(f"Skipping LLM classification for unsupported extension: {extension}")
+        return None
+
     # Check for API key
     api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
     if not api_key:
         logger.debug("No Gemini API key found, skipping LLM classification")
+        return None
+
+    # If no text content was extracted, skip LLM classification
+    # This handles images and other binary files
+    if not content or len(content.strip()) < 20:
+        logger.debug("Insufficient text content for LLM classification")
         return None
 
     try:
