@@ -2,16 +2,35 @@
 Agent Router
 
 Classification-first routing to specialized agents.
+Uses LLM-based document classification for intelligent routing.
 """
 
 import logging
 import mimetypes
+import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
 from google.adk.agents import LlmAgent
 
+# Import for LLM-based classification
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+
+# Import for document content extraction
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Configure Gemini for classification
+CLASSIFICATION_MODEL = os.getenv('CLASSIFICATION_MODEL', 'gemini-2.0-flash')
 
 
 # Document type classifications
@@ -88,23 +107,150 @@ def classify_document(
     return classification
 
 
-def _analyze_content(
+def _extract_document_content(document_path: str, max_chars: int = 3000) -> Optional[str]:
+    """
+    Extract text content from document for classification.
+
+    Args:
+        document_path: Path to document
+        max_chars: Maximum characters to extract
+
+    Returns:
+        Extracted text content or None if extraction fails
+    """
+    path = Path(document_path)
+    extension = path.suffix.lower()
+
+    try:
+        if extension == '.pdf' and PYMUPDF_AVAILABLE:
+            # Extract text from first few pages of PDF
+            doc = fitz.open(document_path)
+            text_parts = []
+            for page_num in range(min(3, len(doc))):  # First 3 pages
+                page = doc[page_num]
+                text_parts.append(page.get_text())
+            doc.close()
+            text = "\n".join(text_parts)
+            return text[:max_chars] if text else None
+
+        elif extension in ['.txt', '.md', '.csv']:
+            with open(document_path, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.read(max_chars)
+
+        elif extension in ['.docx'] and PYMUPDF_AVAILABLE:
+            # PyMuPDF can also handle DOCX
+            doc = fitz.open(document_path)
+            text_parts = []
+            for page in doc:
+                text_parts.append(page.get_text())
+            doc.close()
+            text = "\n".join(text_parts)
+            return text[:max_chars] if text else None
+
+    except Exception as e:
+        logger.warning(f"Failed to extract content from {document_path}: {e}")
+
+    return None
+
+
+def _classify_with_llm(
+    document_path: str,
+    content: Optional[str],
+    registered_types: List[str],
+    content_hint: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Use LLM to classify document type.
+
+    Args:
+        document_path: Path to document
+        content: Extracted text content
+        registered_types: List of registered document types to choose from
+        content_hint: Optional hint about document content
+
+    Returns:
+        Classification result or None if LLM classification fails
+    """
+    if not GENAI_AVAILABLE:
+        logger.debug("google.generativeai not available, skipping LLM classification")
+        return None
+
+    # Check for API key
+    api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        logger.debug("No Gemini API key found, skipping LLM classification")
+        return None
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(CLASSIFICATION_MODEL)
+
+        # Build classification prompt
+        filename = Path(document_path).name
+        types_list = ", ".join(registered_types) if registered_types else "invoice, agreement, kyc, receipt, document"
+
+        prompt = f"""Analyze this document and classify its type.
+
+Document filename: {filename}
+{f'Content hint: {content_hint}' if content_hint else ''}
+
+Document content (first portion):
+---
+{content if content else '[No text content extracted - may be an image or scanned document]'}
+---
+
+Available document types: {types_list}
+
+Based on the document content and context, determine:
+1. The document type (must be one from the available types, or 'document' if none match)
+2. Your confidence level (0.0 to 1.0)
+3. Key features that led to this classification
+
+Respond in this exact JSON format:
+{{"type": "<document_type>", "confidence": <0.0-1.0>, "features": ["feature1", "feature2"]}}
+
+Only respond with the JSON, no other text."""
+
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        # Parse JSON response
+        import json
+        # Handle potential markdown code blocks
+        if response_text.startswith('```'):
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+        response_text = response_text.strip()
+
+        result = json.loads(response_text)
+        result['method'] = 'llm'
+        result['model'] = CLASSIFICATION_MODEL
+
+        logger.info(f"LLM classified '{filename}' as '{result['type']}' with confidence {result['confidence']}")
+        return result
+
+    except Exception as e:
+        logger.warning(f"LLM classification failed: {e}")
+        return None
+
+
+def _analyze_content_fallback(
     document_path: str,
     content_hint: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Analyze document content to determine type.
+    Fallback keyword-based classification when LLM is unavailable.
 
     Uses filename patterns and content hints for classification.
-    In production, could use ML classifier or lightweight LLM.
     """
     path = Path(document_path)
     filename = path.stem.lower()
 
     # Filename-based heuristics
-    invoice_keywords = ['invoice', 'inv', 'bill', 'receipt', 'payment']
-    agreement_keywords = ['agreement', 'contract', 'nda', 'msa', 'sow', 'lease', 'terms']
-    kyc_keywords = ['passport', 'license', 'id', 'identity', 'permit', 'visa']
+    invoice_keywords = ['invoice', 'inv', 'bill', 'receipt', 'payment', 'order']
+    agreement_keywords = ['agreement', 'contract', 'nda', 'msa', 'sow', 'lease', 'terms', 'policy']
+    kyc_keywords = ['passport', 'license', 'id', 'identity', 'permit', 'visa', 'aadhaar', 'pan']
 
     features = []
 
@@ -115,7 +261,7 @@ def _analyze_content(
             return {
                 'type': 'invoice',
                 'confidence': 0.8,
-                'method': 'filename',
+                'method': 'filename_keyword',
                 'features': features
             }
 
@@ -125,7 +271,7 @@ def _analyze_content(
             return {
                 'type': 'agreement',
                 'confidence': 0.8,
-                'method': 'filename',
+                'method': 'filename_keyword',
                 'features': features
             }
 
@@ -135,7 +281,7 @@ def _analyze_content(
             return {
                 'type': 'kyc',
                 'confidence': 0.8,
-                'method': 'filename',
+                'method': 'filename_keyword',
                 'features': features
             }
 
@@ -176,6 +322,43 @@ def _analyze_content(
     }
 
 
+# Global reference to router for getting registered types
+_active_router: Optional['AgentRouter'] = None
+
+
+def _analyze_content(
+    document_path: str,
+    content_hint: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Analyze document content to determine type using LLM.
+
+    Uses Gemini for intelligent classification with fallback to keywords.
+    """
+    # Get registered types from active router
+    registered_types = []
+    if _active_router:
+        registered_types = _active_router.list_types()
+
+    # Try to extract document content
+    content = _extract_document_content(document_path)
+
+    # Try LLM classification first
+    llm_result = _classify_with_llm(
+        document_path=document_path,
+        content=content,
+        registered_types=registered_types,
+        content_hint=content_hint
+    )
+
+    if llm_result:
+        return llm_result
+
+    # Fallback to keyword-based classification
+    logger.debug("Using keyword-based fallback classification")
+    return _analyze_content_fallback(document_path, content_hint)
+
+
 class AgentRouter:
     """
     Routes documents to specialized agents based on classification.
@@ -184,6 +367,7 @@ class AgentRouter:
     - Built-in agent registration (invoice, agreement, kyc)
     - Custom agent registration
     - Classification-first routing
+    - LLM-based intelligent document classification
 
     Usage:
         router = AgentRouter()
@@ -192,15 +376,30 @@ class AgentRouter:
         router.register(['invoice', 'bill', 'receipt'], invoice_agent)
         router.register(['agreement', 'contract'], agreement_agent)
 
-        # Route a document
+        # Route a document (uses LLM classification)
         classification = classify_document(document_path)
         agent = router.route(classification)
     """
 
-    def __init__(self):
-        """Initialize router with empty routes."""
+    def __init__(self, set_as_active: bool = True):
+        """
+        Initialize router with empty routes.
+
+        Args:
+            set_as_active: If True, set this router as the active router
+                          for LLM classification context
+        """
         self._routes: Dict[str, LlmAgent] = {}
         self._type_aliases: Dict[str, str] = {}
+
+        if set_as_active:
+            self._set_as_active()
+
+    def _set_as_active(self) -> None:
+        """Set this router as the active router for classification."""
+        global _active_router
+        _active_router = self
+        logger.debug("Set router as active for LLM classification")
 
     def register(
         self,
